@@ -4,6 +4,10 @@ import io
 
 import pandas as pd
 import streamlit as st
+try:
+    import streamlit.components.v1 as components
+except ImportError:          # sem isso o app funciona, só não limpa a seleção ao clicar fora
+    components = None
 
 import autoria
 import classificador as C
@@ -142,11 +146,19 @@ def tabela_artigos(sub, chave):
     st.download_button("Baixar esta seleção (CSV)", sub.to_csv(index=False).encode("utf-8-sig"), "selecao.csv", "text/csv", key="dl_" + chave)
 
 
+ATIVO = [False]          # vira True se algum gráfico tem barra selecionada nesta rodada
+
+
+def K(key):
+    """Chave do widget com 'versão': aumentar a versão cria widgets novos, o que limpa todas as seleções de uma vez."""
+    return f"{key}__{st.session_state.get('_v_sel', 0)}"
+
+
 def rotulos_sel(key, horizontal=True):
     """Rótulos (str) selecionados em outro gráfico, lidos do estado do Streamlit (vale já na rodada do clique)."""
     if CLIQUE:
-        return I.rotulos_clicados(st.session_state.get(key), horizontal)
-    v = st.session_state.get(key + "_r")
+        return I.rotulos_clicados(st.session_state.get(K(key)), horizontal)
+    v = st.session_state.get(K(key) + "_r")
     return set() if v in (None, "(nenhum)") else {str(v)}
 
 
@@ -158,15 +170,16 @@ def grafico(tabela, titulo, filtro, destino, key, empilhar=False, horizontal=Tru
     sel = []
     if CLIQUE:
         ev = st.plotly_chart(I.barras(tabela, titulo, horizontal, empilhar, cores), use_container_width=True,
-                             on_select="rerun", selection_mode="points", key=key)
+                             on_select="rerun", selection_mode="points", key=K(key))
         sel = I.ler_clique(ev, tabela, horizontal)
+        if sel: ATIVO[0] = True
     else:
-        if TEM_PLOTLY: st.plotly_chart(I.barras(tabela, titulo, horizontal, empilhar, cores), use_container_width=True, key=key)
+        if TEM_PLOTLY: st.plotly_chart(I.barras(tabela, titulo, horizontal, empilhar, cores), use_container_width=True, key=K(key))
         else:
             st.markdown(f"**{titulo}**"); st.bar_chart(tabela)
-        rot = st.selectbox("Ver artigos de:", ["(nenhum)"] + [str(i) for i in tabela.index], key=key + "_r")
+        rot = st.selectbox("Ver artigos de:", ["(nenhum)"] + [str(i) for i in tabela.index], key=K(key) + "_r")
         if rot != "(nenhum)":
-            grp = st.selectbox("Grupo:", [str(c) for c in tabela.columns], key=key + "_g") if multi else str(tabela.columns[0])
+            grp = st.selectbox("Grupo:", [str(c) for c in tabela.columns], key=K(key) + "_g") if multi else str(tabela.columns[0])
             idx = [str(i) for i in tabela.index].index(rot); sel = [(tabela.index[idx], grp)]
     if destino is None:
         return sel
@@ -199,6 +212,11 @@ c4.metric("Casos concretos", int((f["Categoria"] == C.CATS[0]).sum()))
 c5.metric("Open Access", "n/d" if "Open Access" in FALTANDO else f"{(f['Open Access (sim/não)'] == 'Sim').mean() * 100:.0f}%")
 if not CLIQUE:
     st.warning("Clique nas barras indisponível: atualize com `pip install -U streamlit plotly`. Enquanto isso, use as listas abaixo dos gráficos.")
+
+st.markdown("<style>.st-key-btn_limpar{display:none;}</style>", unsafe_allow_html=True)
+if st.button("Limpar seleção", key="btn_limpar"):          # clicado pelo script de 'clicar fora' (ou manualmente, se o CSS não esconder)
+    st.session_state["_v_sel"] = st.session_state.get("_v_sel", 0) + 1
+    ATIVO[0] = False
 
 abas = st.tabs(["Visão geral", "Casos concretos", "Peças, materiais e tecnologias", "Países, instituições e autores",
                 "Comparar buscas", "Tabela e downloads"])
@@ -379,3 +397,34 @@ with abas[5]:
                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     x2.download_button("Baixar gráficos (ZIP de PNGs)", gerar_zip(f), "graficos.zip", "application/zip")
     x3.download_button("Baixar CSV classificado", f.drop(columns=[c for c in f.columns if c.startswith("_")]).to_csv(index=False).encode("utf-8-sig"), "classificado.csv", "text/csv")
+
+
+# ---------------- Clicar fora limpa a seleção ----------------
+JS_LIMPAR = """
+<script>
+(function () {
+  const w = window.parent, pdoc = w.document;
+  w.__selAtiva = __ATIVO__;
+  if (w.__limparHandler) pdoc.removeEventListener('click', w.__limparHandler, true);
+  w.__limparHandler = function (ev) {
+    if (!w.__selAtiva) return;
+    const t = ev.target;
+    if (!t || !t.closest) return;
+    // não limpa ao clicar em: botões, campos, links, abas, menus, barras/legenda/menu do gráfico, tabelas, barra lateral
+    const protegido = 'button, a, input, select, textarea, label, summary, [role="tab"], [role="button"], [role="option"], ' +
+      '[role="listbox"], [data-baseweb], .modebar, .legend, g.point, [data-testid="stDataFrame"], ' +
+      '[data-testid="stSidebar"], [data-testid="stFileUploader"], iframe';
+    if (t.closest(protegido)) return;
+    const b = pdoc.querySelector('.st-key-btn_limpar button') ||
+      Array.from(pdoc.querySelectorAll('button')).find(x => (x.innerText || '').trim() === 'Limpar seleção');
+    if (b) { w.__selAtiva = false; b.click(); }
+  };
+  pdoc.addEventListener('click', w.__limparHandler, true);
+})();
+</script>
+"""
+if components is not None:
+    try:
+        components.html(JS_LIMPAR.replace("__ATIVO__", "true" if ATIVO[0] else "false"), height=0)
+    except Exception:
+        pass
