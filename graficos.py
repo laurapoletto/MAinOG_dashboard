@@ -39,6 +39,9 @@ def open_access(d):
 def por_ano(d):
     a = d.copy(); a["Year"] = pd.to_numeric(a["Year"], errors="coerce"); a = a[a["Year"] >= 2005]
     a["g"] = a["Núcleo setorial"].map({"Sim": "Núcleo setorial", "Não": "Demais"})
+    if a.empty:
+        fig, ax = plt.subplots(figsize=(8, 2)); ax.axis("off")
+        ax.text(0.5, 0.5, "Sem dados de ano nos arquivos enviados", ha="center", va="center"); return fig
     p = a.groupby(["Year", "g"]).size().unstack(fill_value=0)
     for c in ["Núcleo setorial", "Demais"]:
         if c not in p: p[c] = 0

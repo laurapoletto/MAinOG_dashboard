@@ -21,14 +21,25 @@ except ImportError:
 # clique em barras exige Streamlit >= 1.35 e plotly
 CLIQUE = TEM_PLOTLY and "on_select" in inspect.signature(st.plotly_chart).parameters
 
-st.set_page_config(page_title="Dashboard bibliométrico – MA", layout="wide")
-st.title("Dashboard bibliométrico – Manufatura Aditiva")
+st.set_page_config(page_title="Dashboard bibliométrico – Aplicações de MA no setor O&G", layout="wide")
+st.title("Dashboard bibliométrico – Aplicações de MA no setor O&G")
 st.caption("Envie exportações do Scopus (.csv) e/ou do Web of Science (.txt tab-delimited ou Excel). Classificação 100% por regras, sem IA e sem custo.")
 
 # ---------------- Entrada ----------------
 with st.sidebar:
     st.header("1. Dados")
     arq_sc = st.file_uploader("Scopus (.csv)", type=["csv"], accept_multiple_files=True, key="up_sc")
+    with st.expander("Como exportar do Scopus (campos a marcar)"):
+        st.markdown(
+            "Em **Export → CSV**, marque:\n\n"
+            "**Citation information**: marque tudo (Author(s), Document title, Year, EID, Source title, Volume/issues/pages, "
+            "Citation count, Source & document type, Publication stage, DOI, Open access).\n\n"
+            "**Bibliographical information**: marque **Affiliations** (necessário para países e instituições).\n\n"
+            "**Abstract & keywords**: marque **Abstract**, **Author keywords** e **Indexed keywords** (necessários para a classificação).\n\n"
+            "Não precisa marcar: Funding details, Other information e *Include references* (só deixam o arquivo pesado). "
+            "*Truncate to optimize for Excel* pode ficar ligado. "
+            "Se o Scopus limitar o tamanho, exporte em partes (por ano, por exemplo) e envie todos os arquivos juntos: "
+            "o app une e remove as duplicatas.")
     arq_wos = st.file_uploader("Web of Science (.txt tab-delimited, .xls ou .xlsx)", type=["txt", "tsv", "xls", "xlsx"],
                                accept_multiple_files=True, key="up_wos")
     with st.expander("Como exportar do Web of Science"):
@@ -57,8 +68,9 @@ def processar(conteudos, nomes_busca, regras):
         lista.append((df_, n))
     m = dados.juntar(lista)
     dup = m.attrs.get("duplicatas_removidas", 0)
+    m, faltando = dados.garantir_colunas(m)
     d = autoria.enriquecer(C.classificar(m, regras))
-    return d, dup, d.attrs.get("tem_afiliacao", False), d.attrs.get("tem_autores", False)
+    return d, dup, d.attrs.get("tem_afiliacao", False), d.attrs.get("tem_autores", False), faltando
 
 
 @st.cache_data(show_spinner="Gerando planilha...")
@@ -77,11 +89,16 @@ if not arquivos:
 
 conteudos = tuple((f_.name, f_.getvalue(), base_) for f_, base_ in arquivos)
 try:
-    d, dup, TEM_AFIL, TEM_AUT = processar(conteudos, tuple(nomes[(base_, f_.name)] for f_, base_ in arquivos),
+    d, dup, TEM_AFIL, TEM_AUT, FALTANDO = processar(conteudos, tuple(nomes[(base_, f_.name)] for f_, base_ in arquivos),
                                           {"AM": r_am, "SETOR": r_setor, "BIO": r_bio, "PERIF": r_per})
 except Exception as e:
     st.error(f"Não consegui ler os arquivos: {e}")
     st.stop()
+
+if FALTANDO:
+    st.warning("Seus arquivos não têm: " + "; ".join(f"**{c}** (afeta: {dados.IMPORTANTES[c]})" for c in FALTANDO) +
+               ". O app funciona, mas essas partes ficam vazias ou limitadas. Reexporte do Scopus marcando *Citation information* "
+               "(ano, fonte, tipo, Open Access) e *Abstract & keywords*, ou envie também o outro arquivo da mesma busca: eles são unidos automaticamente.")
 
 # ---------------- Filtros ----------------
 with st.sidebar:
@@ -179,7 +196,7 @@ c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Registros", len(f)); c2.metric("Duplicatas removidas", dup)
 c3.metric("Núcleo setorial", int((f["Núcleo setorial"] == "Sim").sum()))
 c4.metric("Casos concretos", int((f["Categoria"] == C.CATS[0]).sum()))
-c5.metric("Open Access", f"{(f['Open Access (sim/não)'] == 'Sim').mean() * 100:.0f}%")
+c5.metric("Open Access", "n/d" if "Open Access" in FALTANDO else f"{(f['Open Access (sim/não)'] == 'Sim').mean() * 100:.0f}%")
 if not CLIQUE:
     st.warning("Clique nas barras indisponível: atualize com `pip install -U streamlit plotly`. Enquanto isso, use as listas abaixo dos gráficos.")
 
@@ -333,7 +350,7 @@ with abas[3]:
                        "pois o export não liga cada autor ao seu país. Instituições: só as dos países selecionados.")
         if TEM_AFIL:
             st.subheader("Pares de países que mais colaboram" + (" (com o país selecionado)" if sel_paises else ""))
-            tp, _ = st.columns([1, 4])
+            tp, _ = st.columns([1, 2])
             tp.dataframe(autoria.pares_paises(fb, 15, incluir=sel_paises), hide_index=True, use_container_width=True,
                          column_config={"Par de países": st.column_config.TextColumn("Par de países", width="medium"),
                                         "Artigos": st.column_config.NumberColumn("Artigos", width="small")})

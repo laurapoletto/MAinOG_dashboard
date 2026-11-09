@@ -1,4 +1,4 @@
-# Dashboard bibliométrico – Manufatura Aditiva
+# Dashboard bibliométrico – Aplicações de MA no setor O&G
 
 Recebe CSVs do Scopus (de várias strings de busca), junta, remove duplicatas, classifica
 e gera dashboard + planilha Excel + gráficos. Gratuito: sem IA, sem API, tudo roda no seu computador.
@@ -8,6 +8,15 @@ e gera dashboard + planilha Excel + gráficos. Gratuito: sem IA, sem API, tudo r
 2. Nesta pasta: Windows = duplo clique em `rodar.bat` | Linux/Mac = `bash rodar.sh`.
    (ou manualmente: `pip install -r requirements.txt` e `streamlit run app.py`)
 3. O navegador abre em http://localhost:8501
+
+## Campos a marcar na exportação do Scopus
+Em **Export → CSV**:
+- **Citation information**: marque tudo (Author(s), Document title, Year, EID, Source title, Volume/issues/pages, Citation count, Source & document type, Publication stage, DOI, Open access).
+- **Bibliographical information**: marque **Affiliations** (necessário para países e instituições).
+- **Abstract & keywords**: marque **Abstract**, **Author keywords** e **Indexed keywords** (necessários para a classificação).
+- Não precisa: Funding details, Other information, *Include references* (deixam o arquivo pesado). *Truncate to optimize for Excel* pode ficar ligado.
+- Se o Scopus limitar o tamanho, exporte em partes (por ano, por exemplo) e envie todos os arquivos juntos: o app une e remove as duplicatas.
+- Sem **Abstract**, a classificação fica muito pior (só pelo título). Sem **Affiliations**, a aba de países não funciona. O app avisa o que faltou.
 
 ## Web of Science
 O WoS não exporta CSV. Em **Export**, escolha **Tab delimited file** (gera .txt; é o formato mais simples e não precisa de nada extra) ou **Excel**, com **Record Content: Full Record**. Envie no campo "Web of Science" da barra lateral.
