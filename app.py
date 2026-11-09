@@ -29,7 +29,7 @@ CLIQUE = TEM_PLOTLY and "on_select" in inspect.signature(st.plotly_chart).parame
 
 st.set_page_config(page_title="Dashboard bibliométrico – Aplicações de MA no setor O&G", layout="wide")
 st.title("Dashboard bibliométrico – Aplicações de MA no setor O&G")
-st.caption("Envie exportações do Scopus (.csv) e/ou do Web of Science (.txt tab-delimited ou Excel). Classificação 100% por regras, sem IA e sem custo.")
+st.caption("Envie exportações do Scopus (.csv) e/ou do Web of Science (.txt tab-delimited ou Excel). A classificação é realizada de acordo com regras pré-definidas")
 
 # ---------------- Entrada ----------------
 with st.sidebar:
