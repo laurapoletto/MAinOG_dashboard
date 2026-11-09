@@ -22,6 +22,8 @@ try:
     TEM_PLOTLY = True
 except ImportError:
     TEM_PLOTLY = False
+# st.fragment (Streamlit >= 1.37): cada aba recarrega sozinha ao clicar numa barra, sem refazer a página inteira
+fragmento = getattr(st, "fragment", None) or (lambda fn: fn)
 # clique em barras exige Streamlit >= 1.35 e plotly
 CLIQUE = TEM_PLOTLY and "on_select" in inspect.signature(st.plotly_chart).parameters
 
@@ -75,16 +77,6 @@ def processar(conteudos, nomes_busca, regras):
     m, faltando = dados.garantir_colunas(m)
     d = autoria.enriquecer(C.classificar(m, regras))
     return d, dup, d.attrs.get("tem_afiliacao", False), d.attrs.get("tem_autores", False), faltando
-
-
-@st.cache_data(show_spinner="Gerando planilha...")
-def gerar_xlsx(df):
-    return exportador.exportar_xlsx(df)
-
-
-@st.cache_data(show_spinner="Gerando gráficos...")
-def gerar_zip(df):
-    return exportar_graficos.zip_graficos(df)
 
 
 if not arquivos:
@@ -146,12 +138,13 @@ def tabela_artigos(sub, chave):
     st.download_button("Baixar esta seleção (CSV)", sub.to_csv(index=False).encode("utf-8-sig"), "selecao.csv", "text/csv", key="dl_" + chave)
 
 
-ATIVO = [False]          # vira True se algum gráfico tem barra selecionada nesta rodada
+CTX = [None]              # aba em desenho
+ATIVA = [False]           # a aba em desenho tem alguma barra selecionada?
 
 
 def K(key):
-    """Chave do widget com 'versão': aumentar a versão cria widgets novos, o que limpa todas as seleções de uma vez."""
-    return f"{key}__{st.session_state.get('_v_sel', 0)}"
+    """Chave do widget com 'versão' por gráfico: aumentar a versão de UM gráfico limpa só a seleção dele."""
+    return f"{key}__{st.session_state.get('_v', {}).get(key, 0)}"
 
 
 def rotulos_sel(key, horizontal=True):
@@ -162,17 +155,68 @@ def rotulos_sel(key, horizontal=True):
     return set() if v in (None, "(nenhum)") else {str(v)}
 
 
+def iniciar_aba(nome):
+    """Começo de cada aba: trata o botão escondido 'Limpar seleção' (acionado ao clicar fora)."""
+    CTX[0] = nome; ATIVA[0] = False
+    if st.button(f"Limpar seleção · {nome}", key=f"btn_limpar_{nome}"):
+        v = st.session_state.setdefault("_v", {})
+        for k in st.session_state.get("_charts", {}).get(nome, []):
+            if CLIQUE and I.tem_selecao(st.session_state.get(K(k))):
+                v[k] = v.get(k, 0) + 1                      # só os gráficos com seleção são recriados
+
+
+JS_LIMPAR = """
+<script>
+(function () {
+  const w = window.parent, pdoc = w.document;
+  w.__selAtivas = w.__selAtivas || {};
+  w.__selAtivas["__ID__"] = {ativo: __ATIVO__, label: "__LABEL__", id: "__ID__"};
+  if (!w.__limparV3) {
+    w.__limparV3 = true;
+    pdoc.addEventListener('click', function (ev) {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      // não limpa ao clicar em: botões, campos, links, abas, menus, barras/legenda/menu do gráfico, tabelas, barra lateral
+      const protegido = 'button, a, input, select, textarea, label, summary, [role="tab"], [role="button"], [role="option"], ' +
+        '[role="listbox"], [data-baseweb], .modebar, .legend, g.point, [data-testid="stDataFrame"], ' +
+        '[data-testid="stSidebar"], [data-testid="stFileUploader"], iframe';
+      if (t.closest(protegido)) return;
+      Object.values(w.__selAtivas).forEach(function (s) {
+        if (!s.ativo) return;
+        const b = pdoc.querySelector('.st-key-btn_limpar_' + s.id + ' button') ||
+          Array.from(pdoc.querySelectorAll('button')).find(x => (x.innerText || '').trim() === s.label);
+        if (b) { s.ativo = false; b.click(); }
+      });
+    }, true);
+  }
+})();
+</script>
+"""
+
+
+def fim_aba(nome):
+    """Fim de cada aba: avisa o navegador se há seleção para limpar ao clicar fora."""
+    if components is None or not CLIQUE: return
+    try:
+        components.html(JS_LIMPAR.replace("__ID__", nome).replace("__LABEL__", f"Limpar seleção · {nome}")
+                        .replace("__ATIVO__", "true" if ATIVA[0] else "false"), height=0)
+    except Exception:
+        pass
+
+
 def grafico(tabela, titulo, filtro, destino, key, empilhar=False, horizontal=True, cores=None):
     """Desenha barras. Ao clicar numa barra, os artigos correspondentes entram em `destino`."""
     if tabela.empty or float(tabela.values.sum()) == 0:
         st.caption(f"{titulo}: sem dados nesse filtro."); return
     multi = tabela.shape[1] > 1
     sel = []
+    reg = st.session_state.setdefault("_charts", {}).setdefault(CTX[0], [])
+    if key not in reg: reg.append(key)
     if CLIQUE:
         ev = st.plotly_chart(I.barras(tabela, titulo, horizontal, empilhar, cores), use_container_width=True,
                              on_select="rerun", selection_mode="points", key=K(key))
         sel = I.ler_clique(ev, tabela, horizontal)
-        if sel: ATIVO[0] = True
+        if sel: ATIVA[0] = True
     else:
         if TEM_PLOTLY: st.plotly_chart(I.barras(tabela, titulo, horizontal, empilhar, cores), use_container_width=True, key=K(key))
         else:
@@ -213,10 +257,7 @@ c5.metric("Open Access", "n/d" if "Open Access" in FALTANDO else f"{(f['Open Acc
 if not CLIQUE:
     st.warning("Clique nas barras indisponível: atualize com `pip install -U streamlit plotly`. Enquanto isso, use as listas abaixo dos gráficos.")
 
-st.markdown("<style>.st-key-btn_limpar{display:none;}</style>", unsafe_allow_html=True)
-if st.button("Limpar seleção", key="btn_limpar"):          # clicado pelo script de 'clicar fora' (ou manualmente, se o CSS não esconder)
-    st.session_state["_v_sel"] = st.session_state.get("_v_sel", 0) + 1
-    ATIVO[0] = False
+st.markdown("<style>[class*='st-key-btn_limpar']{display:none;}</style>", unsafe_allow_html=True)
 
 abas = st.tabs(["Visão geral", "Casos concretos", "Peças, materiais e tecnologias", "Países, instituições e autores",
                 "Comparar buscas", "Tabela e downloads"])
@@ -224,7 +265,9 @@ CAT = f["Categoria"]; OA = f["Open Access (sim/não)"]; NUC = f["Núcleo setoria
 VERDE, CINZA, AZUL, LARANJA = "#548235", "#A6A6A6", "#1F3864", "#ED7D31"
 
 # ===== Visão geral =====
-with abas[0]:
+@fragmento
+def aba_vg():
+    iniciar_aba("vg")
     dest = []
     a, b = st.columns(2)
     with a:
@@ -253,9 +296,16 @@ with abas[0]:
         grafico(t, "Segmento da cadeia", lambda l, g: f[(f["Segmento"] == l) & (con if g == "Casos concretos" else NUC)],
                 dest, "g_seg", cores=[LARANJA, AZUL])
     mostrar_selecoes(dest, "vg")
+    fim_aba("vg")
+
+
+with abas[0]:
+    aba_vg()
 
 # ===== Casos concretos =====
-with abas[1]:
+@fragmento
+def aba_cc():
+    iniciar_aba("cc")
     dest = []
     cc = f[CAT == C.CATS[0]]
     if cc.empty:
@@ -290,9 +340,16 @@ with abas[1]:
     mostrar_selecoes(dest, "cc")
     if not cc.empty:
         st.subheader("Todos os casos concretos"); tabela_artigos(cc, "cc_todos")
+    fim_aba("cc")
+
+
+with abas[1]:
+    aba_cc()
 
 # ===== Peças, materiais, tecnologias =====
-with abas[2]:
+@fragmento
+def aba_pmt():
+    iniciar_aba("pmt")
     dest = []
     SF = CAT == C.CATS[3]
 
@@ -318,9 +375,16 @@ with abas[2]:
         t = f.loc[NUC, "Source title"].fillna("—").value_counts().head(12).to_frame("Registros")
         grafico(t, "Fontes mais frequentes (núcleo setorial)", lambda l, g: f[NUC & (f["Source title"].fillna("—") == l)], dest, "g_fonte", cores=[CINZA])
     mostrar_selecoes(dest, "pmt")
+    fim_aba("pmt")
+
+
+with abas[2]:
+    aba_pmt()
 
 # ===== Países, instituições e autores =====
-with abas[3]:
+@fragmento
+def aba_pia():
+    iniciar_aba("pia")
     if not (TEM_AFIL or TEM_AUT):
         st.info("Seus arquivos não têm as colunas de autoria. No Scopus, ao exportar, marque **Affiliations** (em *Bibliographical information*) e "
                 "**Author(s)**; no Web of Science, use *Full Record*. Depois reenvie os arquivos.")
@@ -375,9 +439,16 @@ with abas[3]:
         mostrar_selecoes(dest, "pia")
         st.caption("Atenção: autores são contados pelo nome (homônimos e variações de grafia podem se misturar) e a instituição é "
                    "estimada pelo texto da afiliação. Use como indicação, não como contagem oficial.")
+    fim_aba("pia")
+
+
+with abas[3]:
+    aba_pia()
 
 # ===== Comparar buscas =====
-with abas[4]:
+@fragmento
+def aba_cb():
+    iniciar_aba("cb")
     dest = []
     if len(todas_buscas) < 2:
         st.info("Envie mais de um CSV (ou dê nomes diferentes) para comparar buscas.")
@@ -388,43 +459,36 @@ with abas[4]:
         st.dataframe(G.tabela_buscas(f), use_container_width=True)
         st.caption("'Exclusivos' = só apareceu nessa busca. '% fora do tema' alto indica string de busca com muito ruído.")
     mostrar_selecoes(dest, "cb")
+    fim_aba("cb")
+
+
+with abas[4]:
+    aba_cb()
 
 # ===== Tabela e downloads =====
-with abas[5]:
+@fragmento
+def aba_tab():
+    iniciar_aba("tab")
     tabela_artigos(f, "tabela")
-    x1, x2, x3 = st.columns(3)
-    x1.download_button("Baixar planilha Excel (registros filtrados)", gerar_xlsx(f), "analise_MA.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    x2.download_button("Baixar gráficos (ZIP de PNGs)", gerar_zip(f), "graficos.zip", "application/zip")
-    x3.download_button("Baixar CSV classificado", f.drop(columns=[c for c in f.columns if c.startswith("_")]).to_csv(index=False).encode("utf-8-sig"), "classificado.csv", "text/csv")
+    # Excel, gráficos e CSV são gerados só quando você clica (gerar a cada clique em barra deixava tudo lento)
+    sig = (len(f), int(pd.util.hash_pandas_object(f[["Title", "Categoria"]].fillna(""), index=False).sum()))
+    if st.button("Preparar downloads (Excel, gráficos e CSV)", key="btn_prep"):
+        with st.spinner("Gerando arquivos..."):
+            st.session_state["_dl"] = {
+                "sig": sig, "xlsx": exportador.exportar_xlsx(f), "zip": exportar_graficos.zip_graficos(f),
+                "csv": f.drop(columns=[c for c in f.columns if c.startswith("_")]).to_csv(index=False).encode("utf-8-sig")}
+    dl = st.session_state.get("_dl")
+    if dl and dl["sig"] == sig:
+        x1, x2, x3 = st.columns(3)
+        x1.download_button("Baixar planilha Excel", dl["xlsx"], "analise_MA.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_xlsx")
+        x2.download_button("Baixar gráficos (ZIP de PNGs)", dl["zip"], "graficos.zip", "application/zip", key="dl_zip")
+        x3.download_button("Baixar CSV classificado", dl["csv"], "classificado.csv", "text/csv", key="dl_csv")
+    elif dl:
+        st.caption("Os filtros mudaram desde a última preparação: clique de novo em 'Preparar downloads'.")
+    fim_aba("tab")
 
 
-# ---------------- Clicar fora limpa a seleção ----------------
-JS_LIMPAR = """
-<script>
-(function () {
-  const w = window.parent, pdoc = w.document;
-  w.__selAtiva = __ATIVO__;
-  if (w.__limparHandler) pdoc.removeEventListener('click', w.__limparHandler, true);
-  w.__limparHandler = function (ev) {
-    if (!w.__selAtiva) return;
-    const t = ev.target;
-    if (!t || !t.closest) return;
-    // não limpa ao clicar em: botões, campos, links, abas, menus, barras/legenda/menu do gráfico, tabelas, barra lateral
-    const protegido = 'button, a, input, select, textarea, label, summary, [role="tab"], [role="button"], [role="option"], ' +
-      '[role="listbox"], [data-baseweb], .modebar, .legend, g.point, [data-testid="stDataFrame"], ' +
-      '[data-testid="stSidebar"], [data-testid="stFileUploader"], iframe';
-    if (t.closest(protegido)) return;
-    const b = pdoc.querySelector('.st-key-btn_limpar button') ||
-      Array.from(pdoc.querySelectorAll('button')).find(x => (x.innerText || '').trim() === 'Limpar seleção');
-    if (b) { w.__selAtiva = false; b.click(); }
-  };
-  pdoc.addEventListener('click', w.__limparHandler, true);
-})();
-</script>
-"""
-if components is not None:
-    try:
-        components.html(JS_LIMPAR.replace("__ATIVO__", "true" if ATIVO[0] else "false"), height=0)
-    except Exception:
-        pass
+with abas[5]:
+    aba_tab()
+

@@ -34,6 +34,11 @@ def _pontos(evento):
         return []
 
 
+def tem_selecao(evento):
+    """True se o gráfico tem alguma barra selecionada."""
+    return len(_pontos(evento)) > 0
+
+
 def _rotulo_ponto(p, horizontal):
     """Rótulo (texto) da barra clicada: eixo y nas barras horizontais, eixo x nas verticais."""
     r = p.get("y" if horizontal else "x")
