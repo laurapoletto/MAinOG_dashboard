@@ -7,7 +7,7 @@ e gera dashboard + planilha Excel + gráficos. Gratuito: sem IA, sem API, tudo r
 1. Instale o Python 3.10+ (python.org). No Windows, marque "Add Python to PATH".
 2. Nesta pasta: Windows = duplo clique em `rodar.bat` | Linux/Mac = `bash rodar.sh`.
    (ou manualmente: `pip install -r requirements.txt` e `streamlit run app.py`)
-3. O navegador abre em https://og-dashboard-lip.streamlit.app/
+3. O navegador abre em http://localhost:8501
 
 ## Campos a marcar na exportação do Scopus
 Em **Export → CSV**:
