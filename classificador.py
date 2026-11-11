@@ -11,7 +11,7 @@ CATS = ["Caso concreto de peça", "Geral/revisão", "Material/processo c/ foco s
         "Fora do tema", "Sem conteúdo (anais/errata)"]
 NUCLEO = CATS[:3]
 SEGS = ["Upstream", "Midstream", "Downstream", "O&G (não esp.)", "Marítimo/naval", "Outro setor", "Sem contexto setorial", "Não identificável"]
-TIPOS = ["Nova", "Protótipo", "Substituição", "Reparo"]
+TIPOS = ["Nova", "Protótipo", "Reposição", "Reparo"]
 
 
 def regras_padrao():
@@ -80,7 +80,7 @@ def classificar(df, regras=None):
     # tipo do caso (prioridade: reparo > reposição > protótipo > nova)
     def tipo(i):
         if _hit(t.iloc[i], a.iloc[i], R0.REPARO, 2): return "Reparo"
-        if _hit(t.iloc[i], a.iloc[i], R0.SUBSTITUIÇÃO, 2): return "Substituição"
+        if _hit(t.iloc[i], a.iloc[i], R0.REPOSICAO, 2): return "Reposição"
         if _hit(t.iloc[i], a.iloc[i], R0.PROTOTIPO, 2): return "Protótipo"
         return "Nova"
     is_c = (d["Categoria"] == CATS[0]).values
