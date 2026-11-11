@@ -26,11 +26,18 @@ PAIS_PT = {
     "Slovakia": "Eslováquia", "Serbia": "Sérvia", "Bulgaria": "Bulgária", "Lithuania": "Lituânia", "Estonia": "Estônia",
 }
 
-FORTE = re.compile(r"universit|universid|université|università|universität|institut|polytechn|politecn|college|academy|academia|"
-                   r"fraunhofer|sintef|\bcnrs\b|aramco|\bcnpc\b|petrobras|equinor|\bmit\b|\bnasa\b|\bcsiro\b|\bkaust\b|\bkfupm\b|"
-                   r"schlumberger|halliburton|baker hughes|shell\b|\bcnooc\b|\bsinopec\b|\buniv\b|\binst\b|\bacad\b|\bcoll\b|\bpolytech", re.I)
-FRACO = re.compile(r"company|corporation|\bcorp\b|\bltd\b|\binc\b|gmbh|\bag\b|\bas\b|\bsa\b|laborator|centre|center|centro|"
-                   r"research|school|council|ministry|foundation|fundação|hospital|\bltda\b|\bllc\b|\bctr\b|\blab\b|\bres\b|\bco\b|\bsch\b", re.I)
+# Níveis de prioridade para achar o NOME da instituição dentro de uma afiliação "Dept, Instituição, Cidade, País".
+# 1) universidades; 2) institutos/empresas conhecidas; 3) empresas e centros genéricos; 4) subunidades (faculdade, escola, depto) só em último caso.
+T1 = re.compile(r"universit|universid|université|università|universität|universiti|universitas|\buniv\b|polytechn|politecn", re.I)
+T2 = re.compile(r"institut|\binst\b|academy|academia|\bacad\b|fraunhofer|sintef|\bcnrs\b|aramco|\bcnpc\b|petrobras|equinor|\bmit\b|"
+                r"\bnasa\b|\bcsiro\b|\bkaust\b|\bkfupm\b|schlumberger|halliburton|baker hughes|shell\b|\bcnooc\b|\bsinopec\b|"
+                r"council|ministry|foundation|fundação|hospital", re.I)
+T3 = re.compile(r"company|corporation|\bcorp\b|\bltd\b|\binc\b|gmbh|\bag\b|\bas\b|\bsa\b|\bltda\b|\bllc\b|\bco\b|\bplc\b|"
+                r"research|laborator|centre|center|centro|\bctr\b|\blab\b|\bres\b", re.I)
+T4 = re.compile(r"college|\bcoll\b|school|\bsch\b|department|\bdept\b|faculty|division", re.I)
+# "Ltd.", "Inc.", "Co." soltos (a vírgula separa "X Co." de "Ltd.") e sufixos legais no fim do nome
+SUFIXO_SOLTO = re.compile(r"^(?:ltd|ltda|inc|llc|co|corp|corporation|limited|gmbh|ag|sa|s\.a|plc|pty|lp|llp|bv|nv|kg)\.?$", re.I)
+SUFIXO_FIM = re.compile(r"(?:[,\s]+(?:co|ltd|ltda|inc|llc|corp|corporation|limited|gmbh|plc|pty|lp|llp|bv|nv|ag|sa|kg)\.?)+$", re.I)
 
 
 def _norm(s):
@@ -47,13 +54,20 @@ def _pais(segmento):
 
 
 def _instituicao(segmento):
-    partes = [x.strip() for x in segmento.split(",") if x.strip()]
-    if len(partes) >= 2: partes = partes[:-1]            # remove o país
-    for rx in (FORTE, FRACO):
-        for p in partes:
-            if rx.search(p): return p
+    brutas = [x.strip() for x in segmento.split(",") if x.strip()]
+    if len(brutas) >= 2: brutas = brutas[:-1]            # remove o país
+    partes = []
+    for p in brutas:                                      # cola "Ltd.", "Inc." etc. no nome anterior: "X Co." + "Ltd." -> "X Co., Ltd."
+        if partes and SUFIXO_SOLTO.match(p): partes[-1] = partes[-1] + ", " + p
+        else: partes.append(p)
     if not partes: return None
-    return partes[0] if len(partes) <= 2 else partes[1]
+    escolhida = None
+    for rx in (T1, T2, T3, T4):
+        escolhida = next((p for p in partes if rx.search(p)), None)
+        if escolhida: break
+    if not escolhida: escolhida = partes[0] if len(partes) <= 2 else partes[1]
+    limpo = SUFIXO_FIM.sub("", escolhida).strip(" ,")      # "Baker Hughes Co." e "Baker Hughes" viram o mesmo nome
+    return limpo or escolhida
 
 
 def _unicos(lista):
