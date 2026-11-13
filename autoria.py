@@ -34,7 +34,11 @@ T2 = re.compile(r"institut|\binst\b|academy|academia|\bacad\b|fraunhofer|sintef|
                 r"council|ministry|foundation|fundação|hospital", re.I)
 T3 = re.compile(r"company|corporation|\bcorp\b|\bltd\b|\binc\b|gmbh|\bag\b|\bas\b|\bsa\b|\bltda\b|\bllc\b|\bco\b|\bplc\b|"
                 r"research|laborator|centre|center|centro|\bctr\b|\blab\b|\bres\b", re.I)
-T4 = re.compile(r"college|\bcoll\b|school|\bsch\b|department|\bdept\b|faculty|division", re.I)
+T4 = re.compile(r"college|\bcoll\b|school", re.I)
+# Subunidades (departamento, faculdade, laboratório...) NUNCA são a instituição.
+UNIDADE_QUALQUER = re.compile(r"\b(?:department|dept|departamento|département|faculty|faculdade|division|divisão)\b", re.I)
+UNIDADE_INICIO = re.compile(r"^(?:school (?:of|for)|college of|key lab|state key|laborator|lab\b|group\b|chair\b|section\b|"
+                            r"cent(?:er|re) for|program|programme|institute (?:of|for) [a-z ,&-]*(?:engineering|science)s?$)", re.I)
 # "Ltd.", "Inc.", "Co." soltos (a vírgula separa "X Co." de "Ltd.") e sufixos legais no fim do nome
 SUFIXO_SOLTO = re.compile(r"^(?:ltd|ltda|inc|llc|co|corp|corporation|limited|gmbh|ag|sa|s\.a|plc|pty|lp|llp|bv|nv|kg)\.?$", re.I)
 SUFIXO_FIM = re.compile(r"(?:[,\s]+(?:co|ltd|ltda|inc|llc|corp|corporation|limited|gmbh|plc|pty|lp|llp|bv|nv|ag|sa|kg)\.?)+$", re.I)
@@ -60,12 +64,16 @@ def _instituicao(segmento):
     for p in brutas:                                      # cola "Ltd.", "Inc." etc. no nome anterior: "X Co." + "Ltd." -> "X Co., Ltd."
         if partes and SUFIXO_SOLTO.match(p): partes[-1] = partes[-1] + ", " + p
         else: partes.append(p)
-    if not partes: return None
+    cand = [p for p in partes if not (UNIDADE_QUALQUER.search(p) or UNIDADE_INICIO.search(p))]   # tira departamentos, faculdades, labs
+    if not cand: return None
     escolhida = None
     for rx in (T1, T2, T3, T4):
-        escolhida = next((p for p in partes if rx.search(p)), None)
+        escolhida = next((p for p in cand if rx.search(p)), None)
         if escolhida: break
-    if not escolhida: escolhida = partes[0] if len(partes) <= 2 else partes[1]
+    if not escolhida:
+        # sem palavra-chave: se sobrou "instituição, cidade" pega a primeira; se sobrou só um item e havia unidades, é a cidade -> desconhecida
+        if len(cand) >= 2 or len(partes) == 1: escolhida = cand[0]
+        else: return None
     limpo = SUFIXO_FIM.sub("", escolhida).strip(" ,")      # "Baker Hughes Co." e "Baker Hughes" viram o mesmo nome
     return limpo or escolhida
 
