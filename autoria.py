@@ -120,11 +120,17 @@ def itens(serie):
     return serie.fillna("").map(lambda s: [x for x in s.split(SEP) if x])
 
 
+def _eh_subunidade(nome):
+    """True para nomes que são departamento/faculdade/laboratório (nunca devem aparecer como instituição)."""
+    return bool(UNIDADE_QUALQUER.search(nome) or UNIDADE_INICIO.search(nome) or SUFIXO_SOLTO.match(nome.strip()))
+
+
 def ranking(d, col, n=15, base=None):
     """Nº de artigos por item (cada artigo conta uma vez por item). base = máscara booleana opcional."""
     x = d if base is None else d[base]
     if col not in x.columns: return pd.Series(dtype=int)
     c = Counter(i for lst in itens(x[col]) for i in lst)
+    if col == "Instituições": c = Counter({k: v for k, v in c.items() if not _eh_subunidade(k)})
     s = pd.Series(c, dtype=int).sort_values(ascending=False)
     return s.head(n) if n else s
 
@@ -136,7 +142,7 @@ def ranking_instituicoes(d, paises=None, n=15):
     for lst in itens(d["_InstPais"]):
         for x in lst:
             pais, _, inst = x.partition("|")
-            if not paises or pais in paises: c[inst] += 1
+            if (not paises or pais in paises) and not _eh_subunidade(inst): c[inst] += 1
     s = pd.Series(c, dtype=int).sort_values(ascending=False)
     return s.head(n) if n else s
 

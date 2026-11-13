@@ -60,8 +60,26 @@ with st.sidebar:
         st.caption("Para mudar peças, materiais e tecnologias, edite regras.py.")
 
 
+def _versao_codigo():
+    """Impressão digital do código de classificação: mudou o código -> o cache é descartado sozinho."""
+    import hashlib
+    import pathlib
+    h = hashlib.md5()
+    try:
+        pasta = pathlib.Path(__file__).parent
+        for nome in ("autoria", "classificador", "regras", "dados", "wos"):
+            p = pasta / f"{nome}.py"
+            if p.exists(): h.update(p.read_bytes())
+    except NameError:
+        pass
+    return h.hexdigest()
+
+
+CODIGO = _versao_codigo()
+
+
 @st.cache_data(show_spinner="Lendo, juntando e classificando...")
-def processar(conteudos, nomes_busca, regras):
+def processar(conteudos, nomes_busca, regras, codigo):
     lista = []
     for (fn, b, base_), n in zip(conteudos, nomes_busca):
         df_ = dados.ler_csv(io.BytesIO(b), n) if base_ == "Scopus" else wos.ler(b, fn, n)
@@ -90,7 +108,7 @@ if not arquivos:
 conteudos = tuple((f_.name, f_.getvalue(), base_) for f_, base_ in arquivos)
 try:
     d, dup, TEM_AFIL, TEM_AUT, FALTANDO = processar(conteudos, tuple(nomes[(base_, f_.name)] for f_, base_ in arquivos),
-                                          {"AM": r_am, "SETOR": r_setor, "BIO": r_bio, "PERIF": r_per})
+                                          {"AM": r_am, "SETOR": r_setor, "BIO": r_bio, "PERIF": r_per}, CODIGO)
 except Exception as e:
     st.error(f"Não consegui ler os arquivos: {e}")
     st.stop()
@@ -99,6 +117,9 @@ if FALTANDO:
     st.warning("Seus arquivos não têm: " + "; ".join(f"**{c}** (afeta: {dados.IMPORTANTES[c]})" for c in FALTANDO) +
                ". O app funciona, mas essas partes ficam vazias ou limitadas. Reexporte do Scopus marcando *Citation information* "
                "(ano, fonte, tipo, Open Access) e *Abstract & keywords*, ou envie também o outro arquivo da mesma busca: eles são unidos automaticamente.")
+
+with st.sidebar:
+    st.caption(f"Versão do código: {CODIGO[:7]}")
 
 # ---------------- Filtros ----------------
 with st.sidebar:
